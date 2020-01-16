@@ -5,6 +5,7 @@ import memstore.data.DataLoader;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.IntBuffer;
 import java.util.List;
 
 /**
@@ -16,6 +17,7 @@ public class ColumnTable implements Table {
     int numCols;
     int numRows;
     ByteBuffer columns;
+    IntBuffer view;
 
     public ColumnTable() { }
 
@@ -29,15 +31,17 @@ public class ColumnTable implements Table {
         this.numCols = loader.getNumCols();
         List<ByteBuffer> rows = loader.getRows();
         numRows = rows.size();
-        this.columns = ByteBuffer.allocate(ByteFormat.FIELD_LEN*numRows*numCols);
+        this.columns = ByteBuffer.allocate(ByteFormat.FIELD_LEN * numRows * numCols);
+        this.view = columns.asIntBuffer();
 
         for (int rowId = 0; rowId < numRows; rowId++) {
             ByteBuffer curRow = rows.get(rowId);
             for (int colId = 0; colId < numCols; colId++) {
-                int offset = ByteFormat.FIELD_LEN * ((colId * numRows) + rowId);
-                this.columns.putInt(offset, curRow.getInt(ByteFormat.FIELD_LEN*colId));
+                int offset = ((colId * numRows) + rowId);
+                this.view.put(offset, curRow.getInt(ByteFormat.FIELD_LEN*colId));
             }
         }
+
     }
 
     /**
@@ -45,8 +49,8 @@ public class ColumnTable implements Table {
      */
     @Override
     public int getIntField(int rowId, int colId) {
-        int offset = ByteFormat.FIELD_LEN * ((colId * numRows) + rowId);
-        return columns.getInt(offset);
+        int offset = ((colId * numRows) + rowId);
+        return view.get(offset);
     }
 
     /**
@@ -54,8 +58,8 @@ public class ColumnTable implements Table {
      */
     @Override
     public void putIntField(int rowId, int colId, int field) {
-        int offset = ByteFormat.FIELD_LEN * ((colId * numRows) + rowId);
-        columns.putInt(offset, field);
+        int offset = ((colId * numRows) + rowId);
+        view.put(offset, field);
     }
 
     /**
@@ -66,8 +70,12 @@ public class ColumnTable implements Table {
      */
     @Override
     public long columnSum() {
-        // TODO: Implement this!
-        return 0;
+        long sum = 0;
+        for (int r = 0; r < numRows; r++) {
+            sum += view.get(r);
+        }
+
+        return sum;
     }
 
     /**
@@ -79,8 +87,16 @@ public class ColumnTable implements Table {
      */
     @Override
     public long predicatedColumnSum(int threshold1, int threshold2) {
-        // TODO: Implement this!
-        return 0;
+        long sum = 0;
+
+        for (int r = 0; r < numRows; r++) {
+            final int c0v = view.get(offset(r, 0));
+            final int c1v = view.get(offset(r, 1));
+            final int c2v = view.get(offset(r, 2));
+            sum += (c1v > threshold1 && c2v < threshold2) ? c0v : 0;
+        }
+
+        return sum;
     }
 
     /**
@@ -91,8 +107,21 @@ public class ColumnTable implements Table {
      */
     @Override
     public long predicatedAllColumnsSum(int threshold) {
-        // TODO: Implement this!
-        return 0;
+        long sum = 0;
+
+        for (int r = 0; r < numRows; r++) {
+            final int c0v = view.get(offset(r, 0));
+
+            if (c0v > threshold) {
+                sum += c0v;
+                for (int c = 1; c < numCols; c++) {
+                    final int val = view.get(offset(r, c));
+                    sum += val;
+                }
+            }
+        }
+
+        return sum;
     }
 
     /**
@@ -103,7 +132,24 @@ public class ColumnTable implements Table {
      */
     @Override
     public int predicatedUpdate(int threshold) {
-        // TODO: Implement this!
-        return 0;
+        int numRowsUpdated = 0;
+
+        for (int r = 0; r < numRows; r++) {
+            final int c0v = view.get(offset(r, 0));
+
+            if (c0v < threshold) {
+                final int c2v = view.get(offset(r, 2));
+                final int c3v = view.get(offset(r, 3));
+                this.putIntField(r, 3, c2v + c3v);
+                numRowsUpdated++;
+            }
+        }
+
+        return numRowsUpdated;
+    }
+
+    private int offset(int r, int c)
+    {
+        return (c * numRows) + r;
     }
 }
