@@ -8,6 +8,7 @@ import java.io.IOException;
  * Custom table implementation to adapt to provided query mix.
  */
 public class CustomTable implements Table {
+    private Table impl = new IndexedRowTable(0);
 
     public CustomTable() { }
 
@@ -19,7 +20,7 @@ public class CustomTable implements Table {
      */
     @Override
     public void load(DataLoader loader) throws IOException {
-        // TODO: Implement this!
+        impl.load(loader);
     }
 
     /**
@@ -27,8 +28,7 @@ public class CustomTable implements Table {
      */
     @Override
     public int getIntField(int rowId, int colId) {
-        // TODO: Implement this!
-        return 0;
+        return impl.getIntField(rowId, colId);
     }
 
     /**
@@ -36,7 +36,7 @@ public class CustomTable implements Table {
      */
     @Override
     public void putIntField(int rowId, int colId, int field) {
-        // TODO: Implement this!
+        impl.putIntField(rowId, colId, field);
     }
 
     /**
@@ -47,8 +47,7 @@ public class CustomTable implements Table {
      */
     @Override
     public long columnSum() {
-        // TODO: Implement this!
-        return 0;
+        return impl.columnSum();
     }
 
     /**
@@ -60,8 +59,7 @@ public class CustomTable implements Table {
      */
     @Override
     public long predicatedColumnSum(int threshold1, int threshold2) {
-        // TODO: Implement this!
-        return 0;
+        return impl.predicatedColumnSum(threshold1, threshold2);
     }
 
     /**
@@ -72,8 +70,7 @@ public class CustomTable implements Table {
      */
     @Override
     public long predicatedAllColumnsSum(int threshold) {
-        // TODO: Implement this!
-        return 0;
+        return impl.predicatedAllColumnsSum(threshold);
     }
 
     /**
@@ -84,8 +81,7 @@ public class CustomTable implements Table {
      */
     @Override
     public int predicatedUpdate(int threshold) {
-        // TODO: Implement this!
-        return 0;
+        return impl.predicatedUpdate(threshold);
     }
 
 }
