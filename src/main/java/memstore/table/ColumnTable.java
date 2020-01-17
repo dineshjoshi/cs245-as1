@@ -41,7 +41,6 @@ public class ColumnTable implements Table {
                 this.view.put(offset, curRow.getInt(ByteFormat.FIELD_LEN*colId));
             }
         }
-
     }
 
     /**
