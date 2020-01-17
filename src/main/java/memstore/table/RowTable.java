@@ -5,6 +5,7 @@ import memstore.data.DataLoader;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.IntBuffer;
 import java.util.List;
 
 /**
@@ -16,6 +17,7 @@ public class RowTable implements Table {
     protected int numCols;
     protected int numRows;
     protected ByteBuffer rows;
+    protected IntBuffer view;
 
     public RowTable() { }
 
@@ -31,6 +33,7 @@ public class RowTable implements Table {
         List<ByteBuffer> rows = loader.getRows();
         numRows = rows.size();
         this.rows = ByteBuffer.allocate(ByteFormat.FIELD_LEN * numRows * numCols);
+        this.view = this.rows.asIntBuffer();
 
         for (int rowId = 0; rowId < numRows; rowId++) {
             ByteBuffer curRow = rows.get(rowId);
@@ -46,8 +49,7 @@ public class RowTable implements Table {
      */
     @Override
     public int getIntField(int rowId, int colId) {
-        // TODO: Implement this!
-        return 0;
+        return view.get(offset(rowId, colId));
     }
 
     /**
@@ -55,7 +57,7 @@ public class RowTable implements Table {
      */
     @Override
     public void putIntField(int rowId, int colId, int field) {
-        // TODO: Implement this!
+        view.put(offset(rowId, colId), field);
     }
 
     /**
@@ -66,8 +68,13 @@ public class RowTable implements Table {
      */
     @Override
     public long columnSum() {
-        // TODO: Implement this!
-        return 0;
+        long sum = 0;
+
+        for (int r=0; r < numRows; r++) {
+            sum += view.get(offset(r, 0));
+        }
+
+        return sum;
     }
 
     /**
@@ -79,8 +86,16 @@ public class RowTable implements Table {
      */
     @Override
     public long predicatedColumnSum(int threshold1, int threshold2) {
-        // TODO: Implement this!
-        return 0;
+        long sum = 0;
+
+        for (int r = 0; r < numRows; r++) {
+            final int c0v = view.get(offset(r, 0));
+            final int c1v = view.get(offset(r, 1));
+            final int c2v = view.get(offset(r, 2));
+            sum += (c1v > threshold1 && c2v < threshold2) ? c0v : 0;
+        }
+
+        return sum;
     }
 
     /**
@@ -91,8 +106,21 @@ public class RowTable implements Table {
      */
     @Override
     public long predicatedAllColumnsSum(int threshold) {
-        // TODO: Implement this!
-        return 0;
+        long sum = 0;
+
+        for (int r = 0; r < numRows; r++) {
+            final int c0v = view.get(offset(r, 0));
+
+            if (c0v > threshold) {
+                sum += c0v;
+                for (int c = 1; c < numCols; c++) {
+                    final int val = view.get(offset(r, c));
+                    sum += val;
+                }
+            }
+        }
+
+        return sum;
     }
 
     /**
@@ -103,7 +131,23 @@ public class RowTable implements Table {
      */
     @Override
     public int predicatedUpdate(int threshold) {
-        // TODO: Implement this!
-        return 0;
+        int numRowsUpdated = 0;
+
+        for (int r = 0; r < numRows; r++) {
+            final int c0v = view.get(offset(r, 0));
+
+            if (c0v < threshold) {
+                final int c2v = view.get(offset(r, 2));
+                final int c3v = view.get(offset(r, 3));
+                this.putIntField(r, 3, c2v + c3v);
+                numRowsUpdated++;
+            }
+        }
+
+        return numRowsUpdated;
+    }
+
+    private int offset(int r, int c) {
+        return (r * numCols) + c;
     }
 }
