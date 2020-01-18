@@ -126,15 +126,12 @@ public class IndexedRowTable implements Table {
     public long predicatedAllColumnsSum(int threshold) {
         long sum = 0;
 
-        for (int r = 0; r < numRows; r++) {
-            final int c0v = view.get(offset(r, 0));
+        IntSortedSet rowsToModify = getIndexValuesHigherThan(threshold);
 
-            if (c0v > threshold) {
-                sum += c0v;
-                for (int c = 1; c < numCols; c++) {
-                    final int val = view.get(offset(r, c));
-                    sum += val;
-                }
+        for (int r : rowsToModify) {
+            for (int c = 0; c < numCols; c++) {
+                final int val = view.get(offset(r, c));
+                sum += val;
             }
         }
 
@@ -151,18 +148,9 @@ public class IndexedRowTable implements Table {
     public int predicatedUpdate(int threshold) {
         int numRowsUpdated = 0;
 
-        SortedSet<Integer> candidateVals = index.navigableKeySet().headSet(threshold);
-        IntSortedSet rowsToModify = new IntRBTreeSet();
+        IntSortedSet rowsToModify = getIndexValuesLowerThan(threshold);
 
-        for (Integer c : candidateVals) {
-            IntArrayList temp = index.get(c);
-            rowsToModify.addAll(temp);
-        }
-
-        Iterator<Integer> it = rowsToModify.iterator();
-
-        while (it.hasNext()) {
-            int r = it.next();
+        for (int r : rowsToModify) {
             final int c2v = view.get(offset(r, 2));
             final int c3v = view.get(offset(r, 3));
             this.putIntField(r, 3, c2v + c3v);
@@ -170,6 +158,28 @@ public class IndexedRowTable implements Table {
         }
 
         return numRowsUpdated;
+    }
+
+    private IntSortedSet getIndexValuesLowerThan(int threshold) {
+        SortedSet<Integer> candidateVals = index.navigableKeySet().headSet(threshold);
+        IntSortedSet rowsToModify = new IntRBTreeSet();
+
+        for (Integer c : candidateVals) {
+            IntArrayList temp = index.get(c);
+            rowsToModify.addAll(temp);
+        }
+        return rowsToModify;
+    }
+
+    private IntSortedSet getIndexValuesHigherThan(int threshold) {
+        SortedSet<Integer> candidateVals = index.navigableKeySet().tailSet(threshold, false);
+        IntSortedSet rowsToModify = new IntRBTreeSet();
+
+        for (Integer c : candidateVals) {
+            IntArrayList temp = index.get(c);
+            rowsToModify.addAll(temp);
+        }
+        return rowsToModify;
     }
 
     private int offset(int r, int c) {
