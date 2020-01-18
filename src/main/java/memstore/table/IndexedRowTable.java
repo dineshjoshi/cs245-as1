@@ -1,14 +1,16 @@
 package memstore.table;
 
 import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.ints.IntRBTreeSet;
+import it.unimi.dsi.fastutil.ints.IntSortedSet;
+import it.unimi.dsi.fastutil.ints.IntSortedSets;
 import memstore.data.ByteFormat;
 import memstore.data.DataLoader;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
-import java.util.List;
-import java.util.TreeMap;
+import java.util.*;
 
 /**
  * IndexedRowTable, which stores data in row-major format.
@@ -28,6 +30,7 @@ public class IndexedRowTable implements Table {
 
     public IndexedRowTable(int indexColumn) {
         this.indexColumn = indexColumn;
+        this.index = new TreeMap<>();
     }
 
     /**
@@ -65,7 +68,14 @@ public class IndexedRowTable implements Table {
      */
     @Override
     public void putIntField(int rowId, int colId, int field) {
-        view.put(offset(rowId, colId), field);
+        final int offset = offset(rowId, colId);
+
+        if (colId == indexColumn) {
+            final int oldVal = view.get(offset);
+            updateIndex(rowId, oldVal, field);
+        }
+
+        view.put(offset, field);
     }
 
     /**
@@ -141,15 +151,22 @@ public class IndexedRowTable implements Table {
     public int predicatedUpdate(int threshold) {
         int numRowsUpdated = 0;
 
-        for (int r = 0; r < numRows; r++) {
-            final int c0v = view.get(offset(r, 0));
+        SortedSet<Integer> candidateVals = index.navigableKeySet().headSet(threshold);
+        IntSortedSet rowsToModify = new IntRBTreeSet();
 
-            if (c0v < threshold) {
-                final int c2v = view.get(offset(r, 2));
-                final int c3v = view.get(offset(r, 3));
-                this.putIntField(r, 3, c2v + c3v);
-                numRowsUpdated++;
-            }
+        for (Integer c : candidateVals) {
+            IntArrayList temp = index.get(c);
+            rowsToModify.addAll(temp);
+        }
+
+        Iterator<Integer> it = rowsToModify.iterator();
+
+        while (it.hasNext()) {
+            int r = it.next();
+            final int c2v = view.get(offset(r, 2));
+            final int c3v = view.get(offset(r, 3));
+            this.putIntField(r, 3, c2v + c3v);
+            numRowsUpdated++;
         }
 
         return numRowsUpdated;
@@ -157,5 +174,33 @@ public class IndexedRowTable implements Table {
 
     private int offset(int r, int c) {
         return (r * numCols) + c;
+    }
+
+    private void updateIndex(int rowId, int oldVal, int newVal) {
+        IntArrayList newValIdx = index.getOrDefault(newVal, new IntArrayList());
+        IntArrayList oldValIdx = index.getOrDefault(oldVal, new IntArrayList());
+        oldValIdx.rem(rowId);
+        newValIdx.push(rowId);
+        index.put(oldVal, oldValIdx);
+        index.put(newVal, newValIdx);
+    }
+
+    public void printTable() {
+        System.out.println("\nTable\n");
+
+        for (int r = 0; r < numRows; r++) {
+            System.out.printf("%02d. ", r);
+            for (int c = 0; c < numCols; c++) {
+                System.out.printf("%d\t", getIntField(r, c));
+            }
+            System.out.println("");
+        }
+    }
+
+    public void printIndex() {
+        System.out.println("\nIndex\n");
+        for (Map.Entry<Integer, IntArrayList> e: index.entrySet()) {
+            System.out.printf("%d -> %s\n", e.getKey(), Arrays.toString(e.getValue().toIntArray()));
+        }
     }
 }
