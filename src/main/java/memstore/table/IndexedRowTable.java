@@ -21,14 +21,14 @@ public class IndexedRowTable implements Table {
     int numCols;
     int numRows;
 
-    private IndexIntArrayList[] indices;
+    private Map<Integer, IndexIntArrayList> indices;
     private ByteBuffer rows;
     private int indexColumn;
     private IntBuffer view;
 
     public IndexedRowTable(int indexColumn) {
         this.indexColumn = indexColumn;
-        this.indices = new IndexIntArrayList[3];
+        this.indices = new HashMap<>();
     }
 
     /**
@@ -42,9 +42,11 @@ public class IndexedRowTable implements Table {
         this.numCols = loader.getNumCols();
         List<ByteBuffer> rows = loader.getRows();
         numRows = rows.size();
-        this.indices[0] = new IndexIntArrayList(numRows, numCols);
-        this.indices[1] = new IndexIntArrayList(numRows, numCols);
-        this.indices[2] = new IndexIntArrayList(numRows, numCols);
+
+        indices.put(0, new IndexIntArrayList(numRows, numCols));
+        indices.put(2, new IndexIntArrayList(numRows, numCols));
+        if (indexColumn != 0 && indexColumn != 2)
+            indices.put(indexColumn, new IndexIntArrayList(numRows, numCols));
 
         this.rows = ByteBuffer.allocate(ByteFormat.FIELD_LEN * numRows * numCols);
         this.view = this.rows.asIntBuffer();
@@ -72,7 +74,7 @@ public class IndexedRowTable implements Table {
     public void putIntField(int rowId, int colId, int field) {
         final int offset = offset(rowId, colId);
 
-        if (colId >= 0 && colId <= 2) {
+        if (indices.containsKey(colId)) {
             final int oldVal = view.get(offset);
             indexFor(colId).update(rowId, oldVal, field);
         }
@@ -104,25 +106,6 @@ public class IndexedRowTable implements Table {
      *  Returns the sum of all elements in the first column of the table,
      *  subject to the passed-in predicates.
      */
-//    @Override
-//    public long predicatedColumnSum(int threshold1, int threshold2) {
-//        long sum = 0;
-//
-//        for (int r = 0; r < numRows; r++) {
-//            int off = offset(r, 0);
-//
-//            final int c0v = view.get(off);
-//            final int c1v = view.get(off + 1);
-//            final int c2v = view.get(off + 2);
-//            if (c1v > threshold1) {
-//                if (c2v < threshold2) {
-//                    sum += c0v;
-//                }
-//            }
-//        }
-//
-//        return sum;
-//    }
     @Override
     public long predicatedColumnSum(int threshold1, int threshold2) {
         long sum = 0;
@@ -203,7 +186,7 @@ public class IndexedRowTable implements Table {
     }
 
     private Index indexFor(int c) {
-        return indices[c];
+        return indices.get(c);
     }
 
 
