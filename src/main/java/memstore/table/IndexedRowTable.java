@@ -72,9 +72,9 @@ public class IndexedRowTable implements Table {
     public void putIntField(int rowId, int colId, int field) {
         final int offset = offset(rowId, colId);
 
-        if (colId == indexColumn) {
+        if (colId >= 0 && colId <= 2) {
             final int oldVal = view.get(offset);
-            indexFor(0).update(rowId, oldVal, field);
+            indexFor(colId).update(rowId, oldVal, field);
         }
 
         view.put(offset, field);
@@ -104,15 +104,35 @@ public class IndexedRowTable implements Table {
      *  Returns the sum of all elements in the first column of the table,
      *  subject to the passed-in predicates.
      */
+//    @Override
+//    public long predicatedColumnSum(int threshold1, int threshold2) {
+//        long sum = 0;
+//
+//        for (int r = 0; r < numRows; r++) {
+//            int off = offset(r, 0);
+//
+//            final int c0v = view.get(off);
+//            final int c1v = view.get(off + 1);
+//            final int c2v = view.get(off + 2);
+//            if (c1v > threshold1) {
+//                if (c2v < threshold2) {
+//                    sum += c0v;
+//                }
+//            }
+//        }
+//
+//        return sum;
+//    }
     @Override
     public long predicatedColumnSum(int threshold1, int threshold2) {
         long sum = 0;
+        final Set<Integer> c2Rows = indexFor(2).lt(threshold2);
 
-        for (int r = 0; r < numRows; r++) {
-            final int c0v = view.get(offset(r, 0));
-            final int c1v = view.get(offset(r, 1));
-            final int c2v = view.get(offset(r, 2));
-            sum += (c1v > threshold1 && c2v < threshold2) ? c0v : 0;
+        for (Integer r : c2Rows) {
+            final int off = offset(r, 0);
+            final int c1v = view.get(off + 1);
+            if (c1v > threshold1)
+                sum += view.get(off);
         }
 
         return sum;
