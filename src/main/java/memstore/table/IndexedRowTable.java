@@ -1,9 +1,6 @@
 package memstore.table;
 
 import it.unimi.dsi.fastutil.ints.IntArrayList;
-import it.unimi.dsi.fastutil.ints.IntRBTreeSet;
-import it.unimi.dsi.fastutil.ints.IntSortedSet;
-import it.unimi.dsi.fastutil.ints.IntSortedSets;
 import memstore.data.ByteFormat;
 import memstore.data.DataLoader;
 
@@ -24,6 +21,8 @@ public class IndexedRowTable implements Table {
     int numCols;
     int numRows;
     private TreeMap<Integer, IntArrayList> index;
+
+    private Index[] indices;
     private ByteBuffer rows;
     private int indexColumn;
     private IntBuffer view;
@@ -31,6 +30,7 @@ public class IndexedRowTable implements Table {
     public IndexedRowTable(int indexColumn) {
         this.indexColumn = indexColumn;
         this.index = new TreeMap<>();
+        this.indices = new Index[3];
     }
 
     /**
@@ -44,6 +44,10 @@ public class IndexedRowTable implements Table {
         this.numCols = loader.getNumCols();
         List<ByteBuffer> rows = loader.getRows();
         numRows = rows.size();
+        this.indices[0] = new Index(numRows, numCols);
+        this.indices[1] = new Index(numRows, numCols);
+        this.indices[2] = new Index(numRows, numCols);
+
         this.rows = ByteBuffer.allocate(ByteFormat.FIELD_LEN * numRows * numCols);
         this.view = this.rows.asIntBuffer();
 
@@ -72,7 +76,7 @@ public class IndexedRowTable implements Table {
 
         if (colId == indexColumn) {
             final int oldVal = view.get(offset);
-            updateIndex(rowId, oldVal, field);
+            indexFor(0).update(rowId, oldVal, field);
         }
 
         view.put(offset, field);
@@ -126,7 +130,7 @@ public class IndexedRowTable implements Table {
     public long predicatedAllColumnsSum(int threshold) {
         long sum = 0;
 
-        IntSortedSet rowsToModify = getIndexValuesHigherThan(threshold);
+        Set<Integer> rowsToModify = indexFor(0).gt(threshold);
 
         for (int r : rowsToModify) {
             for (int c = 0; c < numCols; c++) {
@@ -148,7 +152,7 @@ public class IndexedRowTable implements Table {
     public int predicatedUpdate(int threshold) {
         int numRowsUpdated = 0;
 
-        IntSortedSet rowsToModify = getIndexValuesLowerThan(threshold);
+        Set<Integer> rowsToModify = indexFor(0).lt(threshold);
 
         for (int r : rowsToModify) {
             final int c2v = view.get(offset(r, 2));
@@ -160,57 +164,73 @@ public class IndexedRowTable implements Table {
         return numRowsUpdated;
     }
 
-    private IntSortedSet getIndexValuesLowerThan(int threshold) {
-        SortedSet<Integer> candidateVals = index.navigableKeySet().headSet(threshold);
-        IntSortedSet rowsToModify = new IntRBTreeSet();
-
-        for (Integer c : candidateVals) {
-            IntArrayList temp = index.get(c);
-            rowsToModify.addAll(temp);
-        }
-        return rowsToModify;
-    }
-
-    private IntSortedSet getIndexValuesHigherThan(int threshold) {
-        SortedSet<Integer> candidateVals = index.navigableKeySet().tailSet(threshold, false);
-        IntSortedSet rowsToModify = new IntRBTreeSet();
-
-        for (Integer c : candidateVals) {
-            IntArrayList temp = index.get(c);
-            rowsToModify.addAll(temp);
-        }
-        return rowsToModify;
-    }
-
     private int offset(int r, int c) {
         return (r * numCols) + c;
     }
 
-    private void updateIndex(int rowId, int oldVal, int newVal) {
-        IntArrayList newValIdx = index.getOrDefault(newVal, new IntArrayList());
-        IntArrayList oldValIdx = index.getOrDefault(oldVal, new IntArrayList());
-        oldValIdx.rem(rowId);
-        newValIdx.push(rowId);
-        index.put(oldVal, oldValIdx);
-        index.put(newVal, newValIdx);
-    }
+//    public void printTable() {
+//        System.out.println("\nTable\n");
+//
+//        for (int r = 0; r < numRows; r++) {
+//            System.out.printf("%02d. ", r);
+//            for (int c = 0; c < numCols; c++) {
+//                System.out.printf("%d\t", getIntField(r, c));
+//            }
+//            System.out.println("");
+//        }
+//    }
+//
+//    public void printIndex() {
+//        System.out.println("\nIndex\n");
+//        for (Map.Entry<Integer, IntArrayList> e: index.entrySet()) {
+//            System.out.printf("%d -> %s\n", e.getKey(), Arrays.toString(e.getValue().toIntArray()));
+//        }
+//    }
 
-    public void printTable() {
-        System.out.println("\nTable\n");
+    static class Index {
+        private final TreeMap<Integer, IntArrayList> idx = new TreeMap<>();
+        final int numRows;
+        final int numCols;
 
-        for (int r = 0; r < numRows; r++) {
-            System.out.printf("%02d. ", r);
-            for (int c = 0; c < numCols; c++) {
-                System.out.printf("%d\t", getIntField(r, c));
+        public Index(int numRows, int numCols) {
+            this.numRows = numRows;
+            this.numCols = numRows;
+        }
+
+        private void update(int rowId, int oldVal, int newVal) {
+            IntArrayList newValIdx = idx.getOrDefault(newVal, new IntArrayList());
+            IntArrayList oldValIdx = idx.getOrDefault(oldVal, new IntArrayList());
+            oldValIdx.rem(rowId);
+            newValIdx.push(rowId);
+            idx.put(oldVal, oldValIdx);
+            idx.put(newVal, newValIdx);
+        }
+        
+        private Set<Integer> gt(int t) {
+            SortedSet<Integer> candidateVals = idx.navigableKeySet().tailSet(t, false);
+            Set<Integer> rowsToModify = new HashSet<>(numRows);
+
+            for (Integer c : candidateVals) {
+                IntArrayList temp = idx.get(c);
+                rowsToModify.addAll(temp);
             }
-            System.out.println("");
+            return rowsToModify;
+        }
+
+
+        private Set<Integer> lt(int t) {
+            SortedSet<Integer> candidateVals = idx.navigableKeySet().headSet(t);
+            Set<Integer> rowsToModify = new HashSet<>(numRows);
+
+            for (Integer c : candidateVals) {
+                IntArrayList temp = idx.get(c);
+                rowsToModify.addAll(temp);
+            }
+            return rowsToModify;
         }
     }
 
-    public void printIndex() {
-        System.out.println("\nIndex\n");
-        for (Map.Entry<Integer, IntArrayList> e: index.entrySet()) {
-            System.out.printf("%d -> %s\n", e.getKey(), Arrays.toString(e.getValue().toIntArray()));
-        }
+    private Index indexFor(int c) {
+        return indices[c];
     }
 }
