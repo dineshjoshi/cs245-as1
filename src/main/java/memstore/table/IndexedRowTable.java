@@ -20,17 +20,15 @@ import java.util.*;
 public class IndexedRowTable implements Table {
     int numCols;
     int numRows;
-    private TreeMap<Integer, IntArrayList> index;
 
-    private Index[] indices;
+    private IndexIntArrayList[] indices;
     private ByteBuffer rows;
     private int indexColumn;
     private IntBuffer view;
 
     public IndexedRowTable(int indexColumn) {
         this.indexColumn = indexColumn;
-        this.index = new TreeMap<>();
-        this.indices = new Index[3];
+        this.indices = new IndexIntArrayList[3];
     }
 
     /**
@@ -44,9 +42,9 @@ public class IndexedRowTable implements Table {
         this.numCols = loader.getNumCols();
         List<ByteBuffer> rows = loader.getRows();
         numRows = rows.size();
-        this.indices[0] = new Index(numRows, numCols);
-        this.indices[1] = new Index(numRows, numCols);
-        this.indices[2] = new Index(numRows, numCols);
+        this.indices[0] = new IndexIntArrayList(numRows, numCols);
+        this.indices[1] = new IndexIntArrayList(numRows, numCols);
+        this.indices[2] = new IndexIntArrayList(numRows, numCols);
 
         this.rows = ByteBuffer.allocate(ByteFormat.FIELD_LEN * numRows * numCols);
         this.view = this.rows.asIntBuffer();
@@ -180,24 +178,35 @@ public class IndexedRowTable implements Table {
 //        }
 //    }
 //
-//    public void printIndex() {
-//        System.out.println("\nIndex\n");
-//        for (Map.Entry<Integer, IntArrayList> e: index.entrySet()) {
-//            System.out.printf("%d -> %s\n", e.getKey(), Arrays.toString(e.getValue().toIntArray()));
-//        }
-//    }
+    public void printIndex() {
+        indexFor(0).printIndex();
+    }
 
-    static class Index {
+    private Index indexFor(int c) {
+        return indices[c];
+    }
+
+
+    /*--------- INDEX ----------*/
+
+    interface Index {
+        void update(int rowId, int oldVal, int newVal);
+        Set<Integer> gt(int t);
+        Set<Integer> lt(int t);
+        void printIndex();
+    }
+
+    static class IndexIntArrayList implements Index {
         private final TreeMap<Integer, IntArrayList> idx = new TreeMap<>();
         final int numRows;
         final int numCols;
 
-        public Index(int numRows, int numCols) {
+        public IndexIntArrayList(int numRows, int numCols) {
             this.numRows = numRows;
-            this.numCols = numRows;
+            this.numCols = numCols;
         }
 
-        private void update(int rowId, int oldVal, int newVal) {
+        public void update(int rowId, int oldVal, int newVal) {
             IntArrayList newValIdx = idx.getOrDefault(newVal, new IntArrayList());
             IntArrayList oldValIdx = idx.getOrDefault(oldVal, new IntArrayList());
             oldValIdx.rem(rowId);
@@ -206,9 +215,9 @@ public class IndexedRowTable implements Table {
             idx.put(newVal, newValIdx);
         }
         
-        private Set<Integer> gt(int t) {
+        public Set<Integer> gt(int t) {
             SortedSet<Integer> candidateVals = idx.navigableKeySet().tailSet(t, false);
-            Set<Integer> rowsToModify = new HashSet<>(numRows);
+            Set<Integer> rowsToModify = new HashSet<>();
 
             for (Integer c : candidateVals) {
                 IntArrayList temp = idx.get(c);
@@ -218,19 +227,73 @@ public class IndexedRowTable implements Table {
         }
 
 
-        private Set<Integer> lt(int t) {
+        public Set<Integer> lt(int t) {
             SortedSet<Integer> candidateVals = idx.navigableKeySet().headSet(t);
-            Set<Integer> rowsToModify = new HashSet<>(numRows);
+            Set<Integer> rowsToModify = new HashSet<>();
 
             for (Integer c : candidateVals) {
                 IntArrayList temp = idx.get(c);
                 rowsToModify.addAll(temp);
             }
             return rowsToModify;
+        }
+
+        public void printIndex() {
+            System.out.println("\nIndex\n");
+            for (Map.Entry<Integer, IntArrayList> e : idx.entrySet()) {
+                System.out.printf("%d -> %s\n", e.getKey(), Arrays.toString(e.getValue().toIntArray()));
+            }
         }
     }
 
-    private Index indexFor(int c) {
-        return indices[c];
+
+    static class IndexHashSet implements Index {
+        private final TreeMap<Integer, Set<Integer>> idx = new TreeMap<>();
+        final int numRows;
+        final int numCols;
+
+        public IndexHashSet(int numRows, int numCols) {
+            this.numRows = numRows;
+            this.numCols = numCols;
+        }
+
+        public void update(int rowId, int oldVal, int newVal) {
+            Set<Integer> newValIdx = idx.getOrDefault(newVal, new HashSet<>());
+            Set<Integer> oldValIdx = idx.getOrDefault(oldVal, new HashSet<>());
+            oldValIdx.remove(rowId);
+            newValIdx.add(rowId);
+            idx.put(oldVal, oldValIdx);
+            idx.put(newVal, newValIdx);
+        }
+
+        public Set<Integer> gt(int t) {
+            SortedSet<Integer> candidateVals = idx.navigableKeySet().tailSet(t, false);
+            Set<Integer> rowsToModify = new HashSet<>();
+
+            for (Integer c : candidateVals) {
+                Set<Integer> temp = idx.get(c);
+                rowsToModify.addAll(temp);
+            }
+            return rowsToModify;
+        }
+
+
+        public Set<Integer> lt(int t) {
+            SortedSet<Integer> candidateVals = idx.navigableKeySet().headSet(t);
+            Set<Integer> rowsToModify = new HashSet<>();
+
+            for (Integer c : candidateVals) {
+                Set<Integer> temp = idx.get(c);
+                rowsToModify.addAll(temp);
+            }
+            return rowsToModify;
+        }
+
+        public void printIndex() {
+            System.out.println("\nIndex\n");
+            for (Map.Entry<Integer, Set<Integer>> e : idx.entrySet()) {
+                System.out.printf("%d -> %s\n", e.getKey(), Arrays.toString(e.getValue().toArray()));
+            }
+        }
     }
 }

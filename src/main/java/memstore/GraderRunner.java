@@ -148,7 +148,7 @@ public class GraderRunner {
                 .warmupTime(TimeValue.seconds(1))
                 .measurementIterations(numIterPerFork)
                 .measurementTime(TimeValue.milliseconds(300))
-                .forks(numForks)
+                .forks(0)
                 .build();
 
         Collection<RunResult> runResults = new Runner(opt).run();
@@ -255,7 +255,7 @@ public class GraderRunner {
                 .warmupTime(TimeValue.seconds(4))
                 .measurementIterations(numIterPerFork)
                 .measurementTime(TimeValue.seconds(4))
-                .forks(numForks)
+                .forks(0)
                 .build();
 
         Collection<RunResult> runResults = new Runner(opt).run();
