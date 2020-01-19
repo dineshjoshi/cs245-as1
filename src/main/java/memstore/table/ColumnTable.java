@@ -14,10 +14,10 @@ import java.util.List;
  *   col 1 | col 2 | ... | col m.
  */
 public class ColumnTable implements Table {
-    int numCols;
-    int numRows;
-    ByteBuffer columns;
-    IntBuffer view;
+    protected int numCols;
+    protected int numRows;
+    protected ByteBuffer columns;
+    protected IntBuffer view;
 
     public ColumnTable() { }
 
@@ -57,7 +57,7 @@ public class ColumnTable implements Table {
      */
     @Override
     public void putIntField(int rowId, int colId, int field) {
-        int offset = ((colId * numRows) + rowId);
+        final int offset = ((colId * numRows) + rowId);
         view.put(offset, field);
     }
 
@@ -147,7 +147,7 @@ public class ColumnTable implements Table {
         return numRowsUpdated;
     }
 
-    private int offset(int r, int c)
+    protected int offset(int r, int c)
     {
         return (c * numRows) + r;
     }
