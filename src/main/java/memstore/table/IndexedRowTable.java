@@ -21,14 +21,13 @@ public class IndexedRowTable implements Table {
     int numCols;
     int numRows;
 
-    private Map<Integer, IndexIntArrayList> indices;
+    private IndexIntArrayList[] indices;
     private ByteBuffer rows;
     private int indexColumn;
     private IntBuffer view;
 
     public IndexedRowTable(int indexColumn) {
         this.indexColumn = indexColumn;
-        this.indices = new HashMap<>();
     }
 
     /**
@@ -40,13 +39,14 @@ public class IndexedRowTable implements Table {
     @Override
     public void load(DataLoader loader) throws IOException {
         this.numCols = loader.getNumCols();
+        this.indices = new IndexIntArrayList[numCols];
         List<ByteBuffer> rows = loader.getRows();
         numRows = rows.size();
 
-        indices.put(0, new IndexIntArrayList(numRows, numCols));
-        indices.put(2, new IndexIntArrayList(numRows, numCols));
+        indices[0] = new IndexIntArrayList(numRows, numCols);
+        indices[2] = new IndexIntArrayList(numRows, numCols);
         if (indexColumn != 0 && indexColumn != 2)
-            indices.put(indexColumn, new IndexIntArrayList(numRows, numCols));
+            indices[indexColumn] = new IndexIntArrayList(numRows, numCols);
 
         this.rows = ByteBuffer.allocate(ByteFormat.FIELD_LEN * numRows * numCols);
         this.view = this.rows.asIntBuffer();
@@ -81,7 +81,7 @@ public class IndexedRowTable implements Table {
     private void putIntField(int rowId, int colId, int field, boolean updateIndex) {
         final int offset = offset(rowId, colId);
 
-        if (updateIndex && indices.containsKey(colId)) {
+        if (updateIndex && (colId == 0 || colId == 2 || colId == indexColumn)) {
             final int oldVal = view.get(offset);
             indexFor(colId).update(rowId, oldVal, field);
         }
@@ -117,11 +117,11 @@ public class IndexedRowTable implements Table {
     @Override
     public long predicatedColumnSum(int threshold1, int threshold2) {
         long sum = 0;
-        Index idx = indexFor(2);
-        final Set<Integer> rowSet = idx.lt2(threshold2);
+        IndexIntArrayList idx = indexFor(2);
+        final SortedMap<Integer, IntArrayList> rowSet = idx.lt2(threshold2);
 
-        for (Integer rowKey : rowSet) {
-            for (int r : idx.get(rowKey)) {
+        for (IntArrayList row : rowSet.values()) {
+            for (int r : row) {
                 final int off = offset(r, 0);
                 final int c1v = view.get(off + 1);
                 if (c1v > threshold1)
@@ -138,19 +138,50 @@ public class IndexedRowTable implements Table {
      *
      *  Returns the sum of all elements in the rows which pass the predicate.
      */
+//    @Override
+//    public long predicatedAllColumnsSum(int threshold) {
+//        long sum = 0;
+//
+//        final IndexIntArrayList idx = indexFor(0);
+////        final NavigableMap<Integer, IntArrayList> rowSet = idx.gt2(threshold);
+//        final Set<IntArrayList> rowSet = idx.gt(threshold);
+//
+////        for (IntArrayList row : rowSet.values()) {
+//            for (IntArrayList row : rowSet) {
+//                for (int r : row) {
+//                    for (int c = 0; c < numCols; c++) {
+//                        final int val = view.get(offset(r, c));
+//                        sum += val;
+//                    }
+//                }
+//            }
+////        }
+//
+////        for (int r = 0; r < numRows; r++) {
+////            final int c0v = view.get(offset(r, 0));
+////
+////            if (c0v > threshold) {
+////                sum += c0v;
+////                for (int c = 1; c < numCols; c++) {
+////                    final int val = view.get(offset(r, c));
+////                    sum += val;
+////                }
+////            }
+////        }
+//
+//        return sum;
+//    }
     @Override
     public long predicatedAllColumnsSum(int threshold) {
         long sum = 0;
 
-        final Index idx = indexFor(0);
-        final Set<Integer> rowSet = idx.gt2(threshold);
+        for (int r = 0; r < numRows; r++) {
+            final int c0v = view.get(offset(r, 0));
 
-
-        for (Integer rowKey : rowSet) {
-            for (int r : idx.get(rowKey)) {
-                final int off = offset(r, 0);
-                for (int c = 0; c < numCols; c++) {
-                    final int val = view.get(off + c);
+            if (c0v > threshold) {
+                sum += c0v;
+                for (int c = 1; c < numCols; c++) {
+                    final int val = view.get(offset(r, c));
                     sum += val;
                 }
             }
@@ -169,11 +200,11 @@ public class IndexedRowTable implements Table {
     public int predicatedUpdate(int threshold) {
         int numRowsUpdated = 0;
 
-        final Index idx = indexFor(0);
-        Set<Integer> rowSet = idx.lt2(threshold);
+        final IndexIntArrayList idx = indexFor(0);
+        SortedMap<Integer, IntArrayList> rowSet = idx.lt2(threshold);
 
-        for (Integer rowKey : rowSet) {
-            for (int r : idx.get(rowKey)) {
+        for (IntArrayList row : rowSet.values()) {
+            for (int r : row) {
                 final int offset = offset(r, 2);
                 final int c2v = view.get(offset);
                 final int c3v = view.get(offset + 1);
@@ -205,8 +236,8 @@ public class IndexedRowTable implements Table {
         indexFor(0).printIndex();
     }
 
-    private Index indexFor(int c) {
-        return indices.get(c);
+    private IndexIntArrayList indexFor(int c) {
+        return indices[c];
     }
 
 
@@ -217,8 +248,8 @@ public class IndexedRowTable implements Table {
         Set<IntArrayList> gt(int t);
         Set<IntArrayList> lt(int t);
 
-        Set<Integer> lt2(int t);
-        Set<Integer> gt2(int t);
+        SortedMap<Integer, IntArrayList> lt2(int t);
+        NavigableMap<Integer, IntArrayList> gt2(int t);
 
         IntArrayList get(int key);
         void printIndex();
@@ -265,12 +296,12 @@ public class IndexedRowTable implements Table {
             return res;
         }
 
-        public Set<Integer> lt2(int t) {
-            return idx.navigableKeySet().headSet(t);
+        public SortedMap<Integer, IntArrayList> lt2(int t) {
+            return idx.headMap(t);
         }
 
-        public Set<Integer> gt2(int t) {
-            return idx.navigableKeySet().tailSet(t, false);
+        public NavigableMap<Integer, IntArrayList> gt2(int t) {
+            return idx.tailMap(t, false);
         }
 
         public IntArrayList get(int key) {
