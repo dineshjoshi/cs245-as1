@@ -72,15 +72,23 @@ public class IndexedRowTable implements Table {
      */
     @Override
     public void putIntField(int rowId, int colId, int field) {
+        putIntField(rowId, colId, field, true);
+    }
+
+    /**
+     * Inserts the passed-in int field at row `rowId` and column `colId`.
+     */
+    private void putIntField(int rowId, int colId, int field, boolean updateIndex) {
         final int offset = offset(rowId, colId);
 
-        if (indices.containsKey(colId)) {
+        if (updateIndex && indices.containsKey(colId)) {
             final int oldVal = view.get(offset);
             indexFor(colId).update(rowId, oldVal, field);
         }
 
         view.put(offset, field);
     }
+
 
     /**
      * Implements the query
@@ -109,13 +117,16 @@ public class IndexedRowTable implements Table {
     @Override
     public long predicatedColumnSum(int threshold1, int threshold2) {
         long sum = 0;
-        final Set<Integer> c2Rows = indexFor(2).lt(threshold2);
+        Index idx = indexFor(2);
+        final Set<Integer> rowSet = idx.lt2(threshold2);
 
-        for (Integer r : c2Rows) {
-            final int off = offset(r, 0);
-            final int c1v = view.get(off + 1);
-            if (c1v > threshold1)
-                sum += view.get(off);
+        for (Integer rowKey : rowSet) {
+            for (int r : idx.get(rowKey)) {
+                final int off = offset(r, 0);
+                final int c1v = view.get(off + 1);
+                if (c1v > threshold1)
+                    sum += view.get(off);
+            }
         }
 
         return sum;
@@ -131,12 +142,17 @@ public class IndexedRowTable implements Table {
     public long predicatedAllColumnsSum(int threshold) {
         long sum = 0;
 
-        Set<Integer> rowsToModify = indexFor(0).gt(threshold);
+        final Index idx = indexFor(0);
+        final Set<Integer> rowSet = idx.gt2(threshold);
 
-        for (int r : rowsToModify) {
-            for (int c = 0; c < numCols; c++) {
-                final int val = view.get(offset(r, c));
-                sum += val;
+
+        for (Integer rowKey : rowSet) {
+            for (int r : idx.get(rowKey)) {
+                final int off = offset(r, 0);
+                for (int c = 0; c < numCols; c++) {
+                    final int val = view.get(off + c);
+                    sum += val;
+                }
             }
         }
 
@@ -153,13 +169,17 @@ public class IndexedRowTable implements Table {
     public int predicatedUpdate(int threshold) {
         int numRowsUpdated = 0;
 
-        Set<Integer> rowsToModify = indexFor(0).lt(threshold);
+        final Index idx = indexFor(0);
+        Set<Integer> rowSet = idx.lt2(threshold);
 
-        for (int r : rowsToModify) {
-            final int c2v = view.get(offset(r, 2));
-            final int c3v = view.get(offset(r, 3));
-            this.putIntField(r, 3, c2v + c3v);
-            numRowsUpdated++;
+        for (Integer rowKey : rowSet) {
+            for (int r : idx.get(rowKey)) {
+                final int offset = offset(r, 2);
+                final int c2v = view.get(offset);
+                final int c3v = view.get(offset + 1);
+                this.view.put(offset + 1, c2v + c3v);
+                numRowsUpdated++;
+            }
         }
 
         return numRowsUpdated;
@@ -194,9 +214,16 @@ public class IndexedRowTable implements Table {
 
     interface Index {
         void update(int rowId, int oldVal, int newVal);
-        Set<Integer> gt(int t);
-        Set<Integer> lt(int t);
+        Set<IntArrayList> gt(int t);
+        Set<IntArrayList> lt(int t);
+
+        Set<Integer> lt2(int t);
+        Set<Integer> gt2(int t);
+
+        IntArrayList get(int key);
         void printIndex();
+        void rebuild();
+
     }
 
     static class IndexIntArrayList implements Index {
@@ -218,27 +245,36 @@ public class IndexedRowTable implements Table {
             idx.put(newVal, newValIdx);
         }
         
-        public Set<Integer> gt(int t) {
-            SortedSet<Integer> candidateVals = idx.navigableKeySet().tailSet(t, false);
-            Set<Integer> rowsToModify = new HashSet<>();
+        public Set<IntArrayList> gt(int t) {
+            Set<Integer> candidates = idx.navigableKeySet().tailSet(t, false);
+            Set<IntArrayList> res = new HashSet<>();
 
-            for (Integer c : candidateVals) {
-                IntArrayList temp = idx.get(c);
-                rowsToModify.addAll(temp);
-            }
-            return rowsToModify;
+            for (Integer c : candidates)
+                res.add(idx.get(c));
+
+            return res;
         }
 
+        public Set<IntArrayList> lt(int t) {
+            Set<Integer> candidates = idx.navigableKeySet().headSet(t);
+            Set<IntArrayList> res = new HashSet<>();
 
-        public Set<Integer> lt(int t) {
-            SortedSet<Integer> candidateVals = idx.navigableKeySet().headSet(t);
-            Set<Integer> rowsToModify = new HashSet<>();
+            for (Integer c : candidates)
+                res.add(idx.get(c));
 
-            for (Integer c : candidateVals) {
-                IntArrayList temp = idx.get(c);
-                rowsToModify.addAll(temp);
-            }
-            return rowsToModify;
+            return res;
+        }
+
+        public Set<Integer> lt2(int t) {
+            return idx.navigableKeySet().headSet(t);
+        }
+
+        public Set<Integer> gt2(int t) {
+            return idx.navigableKeySet().tailSet(t, false);
+        }
+
+        public IntArrayList get(int key) {
+            return idx.get(key);
         }
 
         public void printIndex() {
@@ -247,56 +283,10 @@ public class IndexedRowTable implements Table {
                 System.out.printf("%d -> %s\n", e.getKey(), Arrays.toString(e.getValue().toIntArray()));
             }
         }
-    }
 
-
-    static class IndexHashSet implements Index {
-        private final TreeMap<Integer, Set<Integer>> idx = new TreeMap<>();
-        final int numRows;
-        final int numCols;
-
-        public IndexHashSet(int numRows, int numCols) {
-            this.numRows = numRows;
-            this.numCols = numCols;
-        }
-
-        public void update(int rowId, int oldVal, int newVal) {
-            Set<Integer> newValIdx = idx.getOrDefault(newVal, new HashSet<>());
-            Set<Integer> oldValIdx = idx.getOrDefault(oldVal, new HashSet<>());
-            oldValIdx.remove(rowId);
-            newValIdx.add(rowId);
-            idx.put(oldVal, oldValIdx);
-            idx.put(newVal, newValIdx);
-        }
-
-        public Set<Integer> gt(int t) {
-            SortedSet<Integer> candidateVals = idx.navigableKeySet().tailSet(t, false);
-            Set<Integer> rowsToModify = new HashSet<>();
-
-            for (Integer c : candidateVals) {
-                Set<Integer> temp = idx.get(c);
-                rowsToModify.addAll(temp);
-            }
-            return rowsToModify;
-        }
-
-
-        public Set<Integer> lt(int t) {
-            SortedSet<Integer> candidateVals = idx.navigableKeySet().headSet(t);
-            Set<Integer> rowsToModify = new HashSet<>();
-
-            for (Integer c : candidateVals) {
-                Set<Integer> temp = idx.get(c);
-                rowsToModify.addAll(temp);
-            }
-            return rowsToModify;
-        }
-
-        public void printIndex() {
-            System.out.println("\nIndex\n");
-            for (Map.Entry<Integer, Set<Integer>> e : idx.entrySet()) {
-                System.out.printf("%d -> %s\n", e.getKey(), Arrays.toString(e.getValue().toArray()));
-            }
+        @Override
+        public void rebuild() {
+            // NoOp for now
         }
     }
 }
