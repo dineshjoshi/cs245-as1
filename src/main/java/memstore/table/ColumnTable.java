@@ -18,7 +18,7 @@ public class ColumnTable implements Table {
     protected int numRows;
     protected ByteBuffer columns;
     protected IntBuffer view;
-    long[] idx;
+    long[] idx, colIdx;
 
     public ColumnTable() { }
 
@@ -44,6 +44,7 @@ public class ColumnTable implements Table {
         }
 
         idx = new long[numRows * numCols];
+        colIdx = new long[numRows];
         rebuildIndex();
     }
 
@@ -63,7 +64,9 @@ public class ColumnTable implements Table {
     public void putIntField(int rowId, int colId, int field) {
         final int offset = ((colId * numRows) + rowId);
         final int oldVal = view.get(offset);
-        idx[rowId] += (field - oldVal);
+        final long delta = (field - oldVal);
+        idx[rowId] += delta;
+        colIdx[colId] += delta;
         view.put(offset, field);
     }
 
@@ -75,12 +78,7 @@ public class ColumnTable implements Table {
      */
     @Override
     public long columnSum() {
-        long sum = 0;
-        for (int r = 0; r < numRows; r++) {
-            sum += view.get(r);
-        }
-
-        return sum;
+        return colIdx[0];
     }
 
     /**
@@ -158,6 +156,7 @@ public class ColumnTable implements Table {
             for (int c = 0; c < numCols; c++) {
                 final int val = view.get(offset(r, c));
                 sum += val;
+                colIdx[c] += val;
             }
             idx[r] = sum;
         }
