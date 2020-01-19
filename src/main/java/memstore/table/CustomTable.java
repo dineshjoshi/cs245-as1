@@ -8,7 +8,7 @@ import java.io.IOException;
  * Custom table implementation to adapt to provided query mix.
  */
 public class CustomTable implements Table {
-    private Table impl = new IndexedRowTable(0);
+    private Table impl = new ColumnTable();
 
     public CustomTable() { }
 
@@ -83,5 +83,4 @@ public class CustomTable implements Table {
     public int predicatedUpdate(int threshold) {
         return impl.predicatedUpdate(threshold);
     }
-
 }
